@@ -5,26 +5,32 @@
 import json
 import dateutil.parser
 import babel
+import logging
+import datetime
 from flask import Flask, render_template, request, Response, flash, redirect, url_for, jsonify
 from flask_moment import Moment
 from flask_sqlalchemy import SQLAlchemy
 from flask_migrate import Migrate
-import logging
 from logging import Formatter, FileHandler
 from flask_wtf import Form
 from forms import *
-from models import database, Venue, Show, Artist
+from models import db, Venue, Show, Artist
+
 #----------------------------------------------------------------------------#
 # App Config.
 #----------------------------------------------------------------------------#
 
 app = Flask(__name__)
+app.config.from_object('config')
 moment = Moment(app)
-db = database(app)
+db.app = app
+db.init_app(app)
+migrate = Migrate(app, db)
 
 #----------------------------------------------------------------------------#
 # Filters.
 #----------------------------------------------------------------------------#
+
 
 def format_datetime(value, format='medium'):
     date = dateutil.parser.parse(value)
@@ -52,28 +58,28 @@ def index():
 
 @app.route('/venues')
 def venues():
-    venue_areas = db.session.query(Venue.city, Venue.state).group_by(Venue.state, Venue.city).all()
+    venue_areas = Venue.query.distinct(Venue.city, Venue.state).all()
+    venues = Venue.query.all()
     data = []
     for area in venue_areas:
-        venues = db.session.query(Venue.id, Venue.name,
-                                  Venue.upcoming_shows_count).filter(Venue.city == area[0], Venue.state == area[1]).all()
         data.append({
-            "city": area[0],
-            "state": area[1],
-            "venues": []
+            "city": area.city,
+            "state": area.state,
+            "venues": [{
+                "id": venue.id,
+                "name": venue.name,
+                "num_upcoming_shows": len([show for show in venue.shows if show.start_time > datetime.now()])
+            } for venue in venues if
+                venue.city == area.city and venue.state == area.state]
         })
-        for venue in venues:
-            data[-1]["venues"].append({
-                "id": venue[0],
-                "name": venue[1],
-                "num_upcoming_shows": venue[2]
-            })
 
     return render_template('pages/venues.html', areas=data)
 
+
 @app.route('/venues/search', methods=['POST'])
 def search_venues():
-    results = Venue.query.filter(Venue.name.ilike('%{}%'.format(request.form['search_term']))).all()
+    results = Venue.query.filter(Venue.name.ilike(
+        '%{}%'.format(request.form['search_term']))).all()
     response = {
         "count": len(results),
         "data": []
@@ -91,18 +97,18 @@ def search_venues():
 @app.route('/venues/<int:venue_id>')
 def show_venue(venue_id):
     venue = Venue.query.get(venue_id)
-    vGenres = venue.genres.split(',') #splits the full string into an array of genres
     past_shows = []
     upcoming_shows = []
+
     shows = venue.shows
     for show in shows:
         show_info = {
             "artist_id": show.artist_id,
             "artist_name": show.artist.name,
             "artist_image_link": show.artist.image_link,
-            "start_time": str(show.start_time)
+            "start_time": show.start_time.strftime("%m/%d/%Y, %H:%M")
         }
-        if(show.upcoming):
+        if show.start_time >= datetime.now():
             upcoming_shows.append(show_info)
         else:
             past_shows.append(show_info)
@@ -110,7 +116,7 @@ def show_venue(venue_id):
     data = {
         "id": venue.id,
         "name": venue.name,
-        "genres": vGenres,
+        "genres": venue.genres,
         "address": venue.address,
         "city": venue.city,
         "state": venue.state,
@@ -141,21 +147,22 @@ def create_venue_form():
 
 @app.route('/venues/create', methods=['POST'])
 def create_venue_submission():
-    venue = Venue()
-
-    venue.name = request.form['name']
-    venue.city = request.form['city']
-    venue.state = request.form['state']
-    venue.address = request.form['address']
-    venue.phone = request.form['phone']
-    venue.facebook_link = request.form['facebook_link']
-    venue.genres = ','.join(request.form['genres'])
-    venue.website_link = request.form['website_link']
-    venue.image_link = request.form['image_link']
-    venue.seeking_talent = request.form.get('seeking_talent', False) 
-    venue.seeking_description = request.form['seeking_description']
-
+    form = VenueForm(request.form)
     try:
+        venue = Venue(
+            name=form.name.data,
+            city=form.city.data,
+            state=form.state.data,
+            address=form.address.data,
+            phone=form.phone.data,
+            facebook_link=form.facebook_link.data,
+            genres=form.genres.data,
+            website_link=form.website_link.data,
+            image_link=form.image_link.data,
+            seeking_talent=form.seeking_talent.data,
+            seeking_description=form.seeking_description.data,
+        )
+
         db.session.add(venue)
         db.session.commit()
         flash('Venue ' + request.form['name'] + ' was successfully listed!')
@@ -207,25 +214,25 @@ def search_artists():
 @app.route('/artists/<int:artist_id>')
 def show_artist(artist_id):
     artist = Artist.query.get(artist_id)
-    aGenres = artist.genres.split(',') #splits the full string into an array of genres
     shows = artist.shows
     past_shows = []
     upcoming_shows = []
     for show in shows:
         show_info = {
-            "venue_id": show.venue_id,
+            "venue_id": show.venue.id,
             "venue_name": show.venue.name,
             "venue_image_link": show.venue.image_link,
-            "start_time": str(show.start_time)
+            "start_time": show.start_time.strftime("%m/%d/%Y, %H:%M")
         }
-        if(show.upcoming):
+        if show.start_time >= datetime.now():
             upcoming_shows.append(show_info)
         else:
             past_shows.append(show_info)
+
     data = {
         "id": artist.id,
         "name": artist.name,
-        "genres": aGenres,
+        "genres": artist.genres,
         "city": artist.city,
         "state": artist.state,
         "phone": artist.phone,
@@ -363,19 +370,21 @@ def create_artist_form():
 
 @app.route('/artists/create', methods=['POST'])
 def create_artist_submission():
-    artist = Artist()
-
-    artist.name = request.form['name']
-    artist.city = request.form['city']
-    artist.state = request.form['state']
-    artist.genres = request.form['genres']
-    artist.phone = request.form['phone']
-    artist.facebook_link = request.form['facebook_link']
-    artist.image_link = request.form['image_link']
-    artist.website_link = request.form['website_link']
-    artist.seeking_venue = request.form.get('seeking_venue', False)
-    artist.seeking_description = request.form['seeking_description']
+    form = ArtistForm(request.form)
     try:
+        artist = Artist(
+            name=form.name.data,
+            city=form.city.data,
+            state=form.state.data,
+            genres=form.genres.data,
+            phone=form.phone.data,
+            facebook_link=form.facebook_link.data,
+            image_link=form.image_link.data,
+            website_link=form.website_link.data,
+            seeking_venue=form.seeking_venue.data,
+            seeking_description=form.seeking_description.data
+        )
+
         db.session.add(artist)
         db.session.commit()
         flash('Artist ' + request.form['name'] + ' was successfully listed!')
@@ -416,12 +425,15 @@ def create_shows():
 
 @app.route('/shows/create', methods=['POST'])
 def create_show_submission():
-    show = Show()
-    show.artist_id = request.form['artist_id']
-    show.venue_id = request.form['venue_id']
-    show.start_time = request.form['start_time']
-    show.upcoming = (datetime.now < show.start_time)
+    form = ShowForm()
+    
     try:
+        show = Show(
+            artist_id = form.artist_id.data,
+            venue_id = form.artist_id.data,
+            start_time = form.artist_id.data,
+            upcoming = (datetime.now < show.start_time)
+        )
         db.session.add(show)
         artist = Artist.query.get(show.artist_id)
         venue = Venue.query.get(show.venue_id)
