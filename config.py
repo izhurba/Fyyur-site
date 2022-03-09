@@ -10,3 +10,4 @@ DEBUG = True
 
 SQLALCHEMY_DATABASE_URI = 'postgresql://postgres:password@localhost:5432/fyyur'
 SQLALCHEMY_TRACK_MODIFICATIONS = False
+ENV = "development" #discouraged by official docs but it's only for error catching

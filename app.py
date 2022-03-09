@@ -88,7 +88,7 @@ def search_venues():
         response["data"].append({
             "id": venue.id,
             "name": venue.name,
-            "num_upcoming_shows": venue.upcoming_shows_count
+            "num_upcoming_shows": len([show for show in venue.shows if show.start_time > datetime.now()])
         })
 
     return render_template('pages/search_venues.html', results=response, search_term=request.form.get('search_term', ''))
@@ -166,13 +166,15 @@ def create_venue_submission():
         db.session.add(venue)
         db.session.commit()
         flash('Venue ' + request.form['name'] + ' was successfully listed!')
-    except:
+    except ValueError as e:
+        if app.debug:
+            print(e)
         db.session.rollback()
         flash('An error has occurred. Venue ' +
               request.form['name'] + ' could not be added.')
     finally:
         db.session.close()
-        return render_template('pages/home.html')
+    return render_template('pages/home.html')
 
 
 @app.route('/venues/<venue_id>/delete', methods=['DELETE'])
@@ -202,12 +204,17 @@ def artists():
 @app.route('/artists/search', methods=['POST'])
 def search_artists():
     results = Artist.query.filter(Artist.name.ilike(
-        '%' + request.form['search_term'] + '%'))
-    artist_list = list(map(Artist.short, results))
+        '%{}%'.format(request.form['search_term']))).all()
     response = {
-        "count": len(artist_list),
-        "data": artist_list
+        "count": len(results),
+        "data": []
     }
+    for artist in results:
+        response["data"].append({
+            "id": artist.id,
+            "name": artist.name,
+            "num_upcoming_shows": len([show for show in artist.shows if show.start_time > datetime.now()])
+        })
     return render_template('pages/search_artists.html', results=response, search_term=request.form.get('search_term', ''))
 
 
@@ -249,116 +256,7 @@ def show_artist(artist_id):
     return render_template('pages/show_artist.html', artist=data)
 
 
-@app.route('/artists/<artist_id>/delete', methods=['DELETE'])
-def delete_artist(artist_id):
-    artist = Artist.query.get(artist_id)
-    try:
-        db.session.delete(artist)
-        db.session.commit()
-        flash('Artist ' + artist.name + ' was successfully deleted!')
-    except:
-        db.session.rollback()
-        flash('Artist ' + artist.name + ' could not be deleted.')
-    finally:
-        db.session.close()
-        return jsonify({'success': True})
-
-
-#  Update
-#  ----------------------------------------------------------------
-
-
-@app.route('/artists/<int:artist_id>/edit', methods=['GET'])
-def edit_artist(artist_id):
-    form = ArtistForm(request.form)
-    artist = Artist.query.get(artist_id)
-    if artist:
-        artist_info = Artist.get_info(artist)
-        form.name.data = artist_info['name']
-        form.city.data = artist_info['city']
-        form.state.data = artist_info['state']
-        form.phone.data = artist_info['phone']
-        form.facebook_link.data = artist_info['facebook_link']
-        form.genres.data = artist_info['genres']
-        form.image_link.data = artist_info['image_link']
-        form.website_link.data = artist_info['website_link']
-        form.seeking_venue.data = artist_info.get('seeking_talent', False)
-        form.seeking_description.data = artist_info['seeking_description']
-
-    return render_template('forms/edit_artist.html', form=form, artist=artist_info)
-
-
-@app.route('/artists/<int:artist_id>/edit', methods=['POST'])
-def edit_artist_submission(artist_id):
-    artist = Artist.query.get(artist_id)
-    artist.name = request.form['name']
-    artist.city = request.form['city']
-    artist.state = request.form['state']
-    artist.phone = request.form['phone']
-    artist.facebook_link = request.form['facebook_link']
-    artist.genres = request.form['genres']
-    artist.image_link = request.form['image_link']
-    artist.website_link = request.form['website_link']
-    artist.seeking_venue = request.form.get('seeking_venue', False)
-    artist.seeking_description = request.form['seeking_description']
-    try:
-        db.session.commit()
-        flash("Artist {} is updated successfully".format(artist.name))
-    except:
-        db.session.rollback()
-        flash("Artist {} isn't updated successfully".format(artist.name))
-    finally:
-        db.session.close()
-    return redirect(url_for('show_artist', artist_id=artist_id))
-
-
-@app.route('/venues/<int:venue_id>/edit', methods=['GET'])
-def edit_venue(venue_id):
-    form = VenueForm()
-    venue = Venue.query.get(venue_id)
-    if venue:
-        venue_info = Venue.get_info(venue)
-        form.name.data = venue_info['name']
-        form.city.data = venue_info['city']
-        form.state.data = venue_info['state']
-        form.address.data = venue_info['address']
-        form.phone.data = venue_info['phone']
-        form.facebook_link.data = venue_info['facebook_link']
-        form.genres.data = venue_info['genres']
-        form.image_link.data = venue_info['image_link']
-        form.website_link.data = venue_info['website_link']
-        form.seeking_talent.data = venue_info.get('seeking_talent', False)
-        form.seeking_description.data = venue_info['seeking_description']
-
-    return render_template('forms/edit_venue.html', form=form, venue=venue_info)
-
-
-@app.route('/venues/<int:venue_id>/edit', methods=['POST'])
-def edit_venue_submission(venue_id):
-    venue = Venue.query.get(venue_id)
-    venue.name = request.form['name']
-    venue.city = request.form['city']
-    venue.state = request.form['state']
-    venue.address = request.form['address']
-    venue.phone = request.form['phone']
-    venue.facebook_link = request.form['facebook_link']
-    venue.genres = request.form['genres']
-    venue.image_link = request.form['image_link']
-    venue.website_link = request.form['website_link']
-    venue.seeking_talent = request.form.get('seeking_talent', False)
-    venue.seeking_description = request.form['seeking_description']
-    try:
-        db.session.commit()
-        flash('Venue ' + venue.name + ' was successfully updated!')
-    except:
-        db.session.rollback()
-        flash('An error occurred. Venue ' +
-              venue.name + ' could not be updated.')
-    finally:
-        db.session.close()
-    return redirect(url_for('show_venue', venue_id=venue_id))
-
-    #  Create Artist
+#  Create Artist
 #  ----------------------------------------------------------------
 
 
@@ -388,13 +286,132 @@ def create_artist_submission():
         db.session.add(artist)
         db.session.commit()
         flash('Artist ' + request.form['name'] + ' was successfully listed!')
-    except:
+    except ValueError as e:
+        if app.debug:
+            print(e)
         db.session.rollback()
         flash('An error occurred. Artist ' +
               artist.name + ' could not be listed.')
     finally:
         db.session.close()
-        return render_template('pages/home.html')
+    return render_template('pages/home.html')
+
+
+@app.route('/artists/<artist_id>/delete', methods=['DELETE'])
+def delete_artist(artist_id):
+    artist = Artist.query.get(artist_id)
+    try:
+        db.session.delete(artist)
+        db.session.commit()
+        flash('Artist ' + artist.name + ' was successfully deleted!')
+    except:
+        db.session.rollback()
+        flash('Artist ' + artist.name + ' could not be deleted.')
+    finally:
+        db.session.close()
+        return jsonify({'success': True})
+
+#  Update
+#  ----------------------------------------------------------------
+
+
+@app.route('/artists/<int:artist_id>/edit', methods=['GET'])
+def edit_artist(artist_id):
+    artist = Artist.query.get(artist_id)
+    form = ArtistForm(obj=artist)
+    # form = ArtistForm(request.form)
+    # artist = Artist.query.get(artist_id)
+    # if artist:
+    #     artist_info = Artist.get_info(artist)
+    #     form.name.data = artist_info['name']
+    #     form.city.data = artist_info['city']
+    #     form.state.data = artist_info['state']
+    #     form.phone.data = artist_info['phone']
+    #     form.facebook_link.data = artist_info['facebook_link']
+    #     form.genres.data = artist_info['genres']
+    #     form.image_link.data = artist_info['image_link']
+    #     form.website_link.data = artist_info['website_link']
+    #     form.seeking_venue.data = artist_info.get('seeking_talent', False)
+    #     form.seeking_description.data = artist_info['seeking_description']
+
+    return render_template('forms/edit_artist.html', form=form, artist=artist)
+
+
+@app.route('/artists/<int:artist_id>/edit', methods=['POST'])
+def edit_artist_submission(artist_id):
+    artist = Artist.query.get(artist_id)
+    form = ArtistForm(request.form)
+    # artist.name = request.form['name']
+    # artist.city = request.form['city']
+    # artist.state = request.form['state']
+    # artist.phone = request.form['phone']
+    # artist.facebook_link = request.form['facebook_link']
+    # artist.genres = request.form['genres']
+    # artist.image_link = request.form['image_link']
+    # artist.website_link = request.form['website_link']
+    # artist.seeking_venue = request.form.get('seeking_venue', False)
+    # artist.seeking_description = request.form['seeking_description']
+    try:
+        form.populate_obj(artist)
+        db.session.commit()
+        flash("Artist {} is updated successfully".format(artist.name))
+    except:
+        db.session.rollback()
+        flash("Artist {} isn't updated successfully".format(artist.name))
+    finally:
+        db.session.close()
+    return redirect(url_for('show_artist', artist_id=artist_id))
+
+
+@app.route('/venues/<int:venue_id>/edit', methods=['GET'])
+def edit_venue(venue_id):
+    venue = Venue.query.get(venue_id)
+    form = VenueForm(obj=venue)
+    # form = VenueForm()
+    # venue = Venue.query.get(venue_id)
+    # if venue:
+    #     venue_info = Venue.get_info(venue)
+    #     form.name.data = venue_info['name']
+    #     form.city.data = venue_info['city']
+    #     form.state.data = venue_info['state']
+    #     form.address.data = venue_info['address']
+    #     form.phone.data = venue_info['phone']
+    #     form.facebook_link.data = venue_info['facebook_link']
+    #     form.genres.data = venue_info['genres']
+    #     form.image_link.data = venue_info['image_link']
+    #     form.website_link.data = venue_info['website_link']
+    #     form.seeking_talent.data = venue_info.get('seeking_talent', False)
+    #     form.seeking_description.data = venue_info['seeking_description']
+
+    return render_template('forms/edit_venue.html', form=form, venue=venue)
+
+
+@app.route('/venues/<int:venue_id>/edit', methods=['POST'])
+def edit_venue_submission(venue_id):
+    venue = Venue.query.get(venue_id)
+    form = VenueForm(request.form)
+    # venue.name = request.form['name']
+    # venue.city = request.form['city']
+    # venue.state = request.form['state']
+    # venue.address = request.form['address']
+    # venue.phone = request.form['phone']
+    # venue.facebook_link = request.form['facebook_link']
+    # venue.genres = request.form['genres']
+    # venue.image_link = request.form['image_link']
+    # venue.website_link = request.form['website_link']
+    # venue.seeking_talent = request.form.get('seeking_talent', False)
+    # venue.seeking_description = request.form['seeking_description']
+    try:
+        form.populate_obj(venue)
+        db.session.commit()
+        flash('Venue ' + venue.name + ' was successfully updated!')
+    except:
+        db.session.rollback()
+        flash('An error occurred. Venue ' +
+              venue.name + ' could not be updated.')
+    finally:
+        db.session.close()
+    return redirect(url_for('show_venue', venue_id=venue_id))
 
 
 #  Shows
@@ -432,7 +449,7 @@ def create_show_submission():
             artist_id = form.artist_id.data,
             venue_id = form.artist_id.data,
             start_time = form.artist_id.data,
-            upcoming = (datetime.now < show.start_time)
+            upcoming = (datetime.now < form.start_time.data)
         )
         db.session.add(show)
         artist = Artist.query.get(show.artist_id)
